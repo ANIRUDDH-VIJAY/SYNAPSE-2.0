@@ -11,6 +11,8 @@ import cookieParser from 'cookie-parser';
 import passport from '../config/passport.js';
 
 const app = express();
+app.set('trust proxy', 1); // *** REQUIRED for secure cookies on Render ***
+
 const PORT = process.env.PORT || 4000;
 
 // Middleware
