@@ -20,9 +20,10 @@ app.use(helmet({
 
 // CORS configuration - strict in production, permissive in development
 const allowedOrigins = [
-  process.env.FRONTEND_URL,               // production frontend (will update after Vercel deploy)
-  'http://localhost:5173',                // local dev frontend
-  'http://127.0.0.1:5173'
+  process.env.FRONTEND_URL,                // from Render env
+  'http://localhost:5173',                 // local dev
+  'http://127.0.0.1:5173',
+  'https://synapse-2-0.vercel.app'         // deployed frontend
 ].filter(Boolean);
 
 app.use(cors({
@@ -49,11 +50,12 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  }
+  secure: true,            // Required for cross-domain cookies
+  httpOnly: true,
+  sameSite: 'none',        // <-- critical change
+  maxAge: 7 * 24 * 60 * 60 * 1000
+}
+
 }));
 
 app.use(passport.initialize());
