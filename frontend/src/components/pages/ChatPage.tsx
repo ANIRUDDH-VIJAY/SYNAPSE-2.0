@@ -414,17 +414,14 @@ export function ChatPage({
           <React.Fragment>
             <ChatWindow
               theme={theme}
-              messages={messages || []}
+              messages={messages}
               message={message}
               onMessageChange={setMessage}
               onSendMessage={handleSendOrStop}
-              onResendMessage={handleSendOrStop}
-              onStopGeneration={handleSendOrStop}
               isGenerating={isGenerating}
-              error={undefined}
-              onDismissError={() => {}}
               placeholder="Type your message here..."
             />
+
           </React.Fragment>
         ) : (
           <div className={`flex-1 overflow-y-auto ${
