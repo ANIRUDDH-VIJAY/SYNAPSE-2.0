@@ -20,37 +20,22 @@ app.use(helmet({
 
 // CORS configuration - strict in production, permissive in development
 const allowedOrigins = [
-  process.env.FRONTEND_URL
+  process.env.FRONTEND_URL,               // production frontend (will update after Vercel deploy)
+  'http://localhost:5173',                // local dev frontend
+  'http://127.0.0.1:5173'
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (process.env.NODE_ENV === 'production') {
-      if (!origin) {
-        return callback(new Error('CORS: Origin required in production'));
-      }
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    } else {
-      if (!origin) {
-        return callback(null, true);
-      }
-      if (allowedOrigins.includes(origin) || 
-          origin.startsWith('http://localhost:') || 
-          origin.startsWith('http://127.0.0.1:')) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
+    if (!origin) return callback(null, true); // allow Postman / server-side requests
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+
+    return callback(new Error(`CORS blocked: ${origin}`));
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Message-Id', 'X-Retry-With-Fallback'],
-  exposedHeaders: ['Content-Type']
+  credentials: true
 }));
 
 app.use(morgan('dev'));
