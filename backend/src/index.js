@@ -22,11 +22,9 @@ app.use(helmet({
 
 // CORS configuration - strict in production, permissive in development
 const allowedOrigins = [
-  process.env.FRONTEND_URL,                // from Render env
-  'http://localhost:5173',                 // local dev
-  'http://127.0.0.1:5173',
-  'https://synapse-2-0.vercel.app'         // deployed frontend
-].filter(Boolean);
+  'https://synapse-2-0.vercel.app',
+  'http://localhost:5173'
+];
 
 app.use(cors({
   origin: (origin, callback) => {
