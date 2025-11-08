@@ -7,6 +7,7 @@ import { AuthModal } from './components/modals/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { authAPI, chatAPI } from './services/api';
 import { ChatService } from './services/chatService';
+import { getCsrfToken } from './services/api';
 
 interface Chat {
   id: string;
@@ -77,6 +78,8 @@ const [allChats, setAllChats] = useState([] as Chat[]);
   // Load user from localStorage on mount (verify with backend)
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
+
+
     
     if (savedUser) {
       try {
@@ -106,6 +109,9 @@ const [allChats, setAllChats] = useState([] as Chat[]);
         localStorage.removeItem('user');
       }
     }
+  }, []);
+    useEffect(() => {
+    getCsrfToken();
   }, []);
 
   // Load chat history from API

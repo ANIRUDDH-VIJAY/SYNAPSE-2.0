@@ -48,6 +48,9 @@ api.interceptors.response.use(
   }
 );
 
+export const getCsrfToken = () => api.get('/auth/csrf');
+
+
 export const authAPI = {
   signup: (name: string, email: string, password: string) =>
     api.post('/auth/signup', { name, email, password }),

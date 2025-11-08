@@ -84,6 +84,18 @@ const connectDB = async () => {
 };
 connectDB();
 
+// Issue CSRF token cookie
+app.get('/auth/csrf', (req, res) => {
+  const token = Math.random().toString(36).substring(2);
+  res.cookie('csrf_token', token, {
+    httpOnly: false, // allow frontend JS to read it
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  });
+  res.json({ csrf: token });
+});
+
+
 // CSRF protection middleware
 import { csrfProtect } from '../middleware/csrf.js';
 

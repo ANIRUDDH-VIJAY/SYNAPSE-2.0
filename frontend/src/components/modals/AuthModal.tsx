@@ -5,6 +5,7 @@ import { SignupForm } from '../auth/SignupForm';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { authAPI } from '../../services/api';
+import { getCsrfToken } from '../../services/api';
 
 interface AuthModalProps {
   open: boolean;
@@ -41,10 +42,11 @@ export function AuthModal({ open, onClose, onLogin, onSignup, theme }: AuthModal
 
     try {
       await onLogin(loginEmail, loginPassword);
+      await getCsrfToken(); // ✅ Fetch CSRF cookie after login
       onClose();
-      // Reset form
       setLoginEmail('');
       setLoginPassword('');
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Login failed';
       
@@ -83,8 +85,8 @@ export function AuthModal({ open, onClose, onLogin, onSignup, theme }: AuthModal
 
     try {
       await onSignup(signupName, signupEmail, signupPassword);
+      await getCsrfToken(); // ✅ Fetch CSRF cookie after signup
       onClose();
-      // Reset form
       setSignupName('');
       setSignupEmail('');
       setSignupPassword('');
