@@ -51,7 +51,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
   secure: true,            // Required for cross-domain cookies
-  httpOnly: true,
+  httpOnly: false,
   sameSite: 'none',        // <-- critical change
   maxAge: 7 * 24 * 60 * 60 * 1000
 }
