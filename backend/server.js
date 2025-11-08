@@ -20,8 +20,11 @@ app.use(helmet({
 }));
 // CORS configuration - strict in production, permissive in development
 const allowedOrigins = [
-  process.env.FRONTEND_URL
-].filter(Boolean); // Only FRONTEND_URL - no hardcoded origins
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://synapse-2-0.vercel.app'
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -72,7 +75,7 @@ app.use(
     cookie: {
       secure: process.env.NODE_ENV === 'production', // HTTPS only in production
       httpOnly: true, // Prevent XSS
-      sameSite: 'lax', // CSRF protection
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // CSRF protection: none in prod for cross-site cookies
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     },
     // TODO: In production, use persistent store:

@@ -22,7 +22,7 @@ export interface Message {
   };
 }
 
-import { type ErrorCode } from './ErrorBanner';
+// ErrorCode type not exported from ErrorBanner; no local usage — removed unused import
 
 interface ChatWindowProps {
   theme: 'light' | 'dark';
@@ -169,8 +169,7 @@ export function ChatWindow({
                   }}
                 />
               ))}
-
-              {isGenerating && <ThinkingBubble theme={theme} />}
+              {/* Streaming placeholder is rendered as a message with status 'streaming' so no separate global ThinkingBubble is needed */}
             </div>
           )}
         </div>

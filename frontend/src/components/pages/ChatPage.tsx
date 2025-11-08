@@ -37,7 +37,7 @@ interface ChatPageProps {
   starredChats: Chat[];
   allChats: Chat[];
   onToggleStar: (chatId: string, isStarred: boolean) => void;
-  messages?: Array<{ id: string; role: 'user' | 'assistant'; content: unknown; timestamp?: string }>;
+  messages?: Array<{ id: string; role: 'user' | 'assistant'; content?: string; timestamp?: string }>;
   currentChatId?: string | null;
   onDeleteChat?: (chatId: string) => void;
   onSelectChat?: (chatId: string) => void;

@@ -53,7 +53,7 @@ export class ChatService {
 
     try {
       const api = (await import('./api')).default;
-      const response = await api.post('/chat/message/stream', 
+        const response = await api.post('/chat/message/stream', 
         { 
           text, 
           threadId,
@@ -124,6 +124,35 @@ export class ChatService {
         remainingMessages
       };
     } catch (err: any) {
+      // If the streaming endpoint doesn't exist (404), fall back to the non-streaming endpoint
+      if (err.response?.status === 404) {
+        try {
+          const api = (await import('./api')).default;
+          const res = await api.post('/chat/message', { chatId: threadId, text, clientMessageId });
+          const msgs = res.data?.messages || [];
+          const last = msgs[msgs.length - 1];
+
+          const finalMessage: Message = {
+            id: `ai-${clientMessageId}`,
+            clientMessageId,
+            role: 'assistant',
+            content: typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content || ''),
+            status: 'done',
+            timestamp: last?.timestamp || new Date().toISOString()
+          };
+
+          // Emit final message so subscribers update placeholders
+          this.emit('messageUpdate', finalMessage);
+
+          return {
+            message: finalMessage,
+            remainingMessages: Number(res.headers['x-dailylimit-remaining'] || 0)
+          };
+        } catch (fallbackErr) {
+          // continue to outer error handling
+          err = fallbackErr;
+        }
+      }
       // Only return error if request wasn't aborted
       if (!controller.signal.aborted) {
         if (err.response) {

@@ -113,6 +113,111 @@ router.post('/message', async (req, res, next) => {
   }
 });
 
+// POST /chat/message/stream
+// Provides a streaming-friendly response (SSE-style lines) so clients that
+// expect server-sent chunks can consume partial tokens. For now we send a
+// single 'token' chunk containing the full response followed by a 'done'
+// event to remain compatible with clients that parse 'data: {...}' lines.
+router.post('/message/stream', async (req, res, next) => {
+  try {
+    const { chatId, text, clientMessageId } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Message text is required' });
+    }
+
+    let chat;
+    if (chatId) {
+      chat = await Chat.findOne({
+        _id: chatId,
+        userId: req.user._id
+      });
+    }
+
+    if (!chat) {
+      // Create a new chat if none exists
+      chat = await Chat.create({
+        userId: req.user._id,
+        messages: []
+      });
+    }
+
+    chat.messages.push({
+      role: 'user',
+      content: text.trim(),
+      timestamp: new Date()
+    });
+
+    await chat.save();
+
+    let aiResponse;
+    try {
+      aiResponse = await getGeminiAPIResponse(chat.messages);
+    } catch (error) {
+      console.error('Gemini API Error (stream):', error);
+
+      if (String(error.message).includes('429')) {
+        return res.status(503).json({ error: 'AI temporarily overloaded. Please try again in a few seconds.' });
+      }
+
+      if (String(error.message).includes('safety') || String(error.message).includes('blocked')) {
+        return res.status(400).json({ error: 'Message was blocked by safety filters. Please rephrase your message.' });
+      }
+      if (String(error.message).includes('key')) {
+        return res.status(500).json({ error: 'API key error. Please check server configuration.' });
+      }
+
+      return res.status(500).json({ 
+        error: 'AI service encountered an error. Please try again.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    // Append assistant message to chat and persist
+    chat.messages.push({
+      role: 'assistant',
+      content: aiResponse,
+      timestamp: new Date()
+    });
+
+    if (!chat.title) {
+      chat.generateTitle();
+    }
+
+    chat.updatedAt = new Date();
+    await chat.save();
+
+    // Send SSE-like chunks. We return a simple streaming payload compatible
+    // with the frontend's parser: lines that start with 'data: ' followed by
+    // a JSON payload. Here we send one token chunk with the full content,
+    // then a done event. Clients can easily adapt to more granular tokens
+    // if an upstream streaming integration is later implemented.
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    if (res.flushHeaders) res.flushHeaders();
+
+    const sendData = (obj) => {
+      try {
+        res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      } catch (e) {
+        console.error('Error writing stream chunk:', e);
+      }
+    };
+
+    // Emit one token chunk containing the full text
+    sendData({ type: 'token', content: typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse) });
+
+    // Emit done
+    sendData({ type: 'done' });
+
+    // End response
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 
 // GET /chat/history
 router.get('/history', async (req, res, next) => {

@@ -6,6 +6,7 @@ import { ProfileModal } from './components/modals/ProfileModal';
 import { AuthModal } from './components/modals/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { authAPI, chatAPI } from './services/api';
+import { ChatService } from './services/chatService';
 
 interface Chat {
   id: string;
@@ -164,7 +165,10 @@ const [allChats, setAllChats] = useState([] as Chat[]);
           return;
         }
 
-        try {
+  // aiMessageId is declared here so catch/finally can reference it if an error occurs
+  let aiMessageId: string | null = null;
+
+  try {
           setIsGenerating(true);
           
           // Create chat if needed
@@ -191,7 +195,7 @@ const [allChats, setAllChats] = useState([] as Chat[]);
           const clientMessageId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
           
           // Add placeholder for AI response with streaming status
-          const aiMessageId = `ai-${clientMessageId}`;
+          aiMessageId = `ai-${clientMessageId}`;
           
           // Add placeholder message with streaming status
           setMessages(prev => [...prev, {
@@ -202,54 +206,42 @@ const [allChats, setAllChats] = useState([] as Chat[]);
             partialContent: 'Thinking...'
           }]);
 
-          setMessages(prev => [...prev, {
-            id: aiMessageId,
-            role: 'assistant' as const,
-            content: '',
-            timestamp: undefined
-          }]);
+          // (removed duplicate placeholder) -- single streaming placeholder already added above
           
-          // Send message and stream response
-          const response = await chatAPI.sendMessage(chatId, messageText);
+          // Send message using ChatService which handles streaming endpoint
+          const chatService = ChatService.getInstance();
+          const response = await chatService.sendMessage({
+            text: messageText,
+            threadId: chatId,
+            clientMessageId
+          });
 
-          // Get the AI response (last message should be assistant)
-          const msgs = response.data.messages;
-          const last = msgs[msgs.length - 1];
+          // ChatService returns { message, remainingMessages } or { error }
+          let fullContent = '';
+          if (response?.error) {
+            console.error('ChatService returned error:', response.error);
+            // Mark the placeholder as failed with a user-friendly message
+            setMessages(prev => prev.map(msg =>
+              msg.id === aiMessageId
+                ? {
+                    ...msg,
+                    status: 'failed',
+                    error: {
+                      code: response.error.code || 'SERVER_ERROR',
+                      message: response.error.title || 'Failed to get response from server.'
+                    }
+                  }
+                : msg
+            ));
+            setIsGenerating(false);
+            await loadChatHistory();
+            return;
+          }
 
-          // Ensure we get a string content
-          let fullContent = "";
-          
-          try {
-            if (!last?.content) {
-              fullContent = "";
-            }
-            else if (typeof last.content === "string") {
-              fullContent = last.content;
-            }
-            else if (typeof last.content === "object") {
-              if ("text" in last.content && last.content.text) {
-                fullContent = String(last.content.text);
-              }
-              else if (Array.isArray(last.content.parts)) {
-                fullContent = last.content.parts
-                  .map((p: any) => {
-                    if (typeof p === "string") return p;
-                    if (p && typeof p === "object" && "text" in p) return String(p.text);
-                    return "";
-                  })
-                  .filter(Boolean)
-                  .join(" ");
-              }
-              else {
-                fullContent = JSON.stringify(last.content);
-              }
-            }
-            else {
-              fullContent = String(last.content);
-            }
-          } catch (err) {
-            console.warn("Error processing message content:", err);
-            fullContent = "[Error: Could not process message]";
+          if (response?.message?.content) {
+            fullContent = String(response.message.content);
+          } else if (response?.message?.partialContent) {
+            fullContent = String(response.message.partialContent);
           }
 
 
@@ -361,15 +353,12 @@ const [allChats, setAllChats] = useState([] as Chat[]);
   const handleLogin = async (email: string, password: string) => {
     try {
       const response = await authAPI.login(email, password);
-      const { user: userData } = response.data;
-      
-      // Token is in HTTP-only cookie, only store minimal user data
-      localStorage.setItem('user', JSON.stringify({
-        id: userData.id,
-        name: userData.name,
-        email: userData.email
-      }));
-      
+      const userData = response.data.user || response.data;
+
+      // Token is in HTTP-only cookie, store backend-returned user object in localStorage
+      localStorage.setItem("user", JSON.stringify(response.data.user || response.data));
+
+      // Update local state with minimal user fields
       setUser({
         id: userData.id,
         name: userData.name,
@@ -377,6 +366,9 @@ const [allChats, setAllChats] = useState([] as Chat[]);
       });
       setIsLoggedIn(true);
       await loadChatHistory();
+
+      // Redirect to chat after successful login
+      window.location.href = '/chat';
     } catch (error: any) {
       // If user not found, throw special error to trigger signup switch
       if (error.response?.status === 404 && error.response?.data?.error === 'USER_NOT_FOUND') {
@@ -389,15 +381,12 @@ const [allChats, setAllChats] = useState([] as Chat[]);
   const handleSignup = async (name: string, email: string, password: string) => {
     try {
       const response = await authAPI.signup(name, email, password);
-      const { user: userData } = response.data;
-      
-      // Token is in HTTP-only cookie, only store minimal user data
-      localStorage.setItem('user', JSON.stringify({
-        id: userData.id,
-        name: userData.name,
-        email: userData.email
-      }));
-      
+      const userData = response.data.user || response.data;
+
+      // Token is in HTTP-only cookie, store backend-returned user object in localStorage
+      localStorage.setItem("user", JSON.stringify(response.data.user || response.data));
+
+      // Update local state with minimal user fields
       setUser({
         id: userData.id,
         name: userData.name,
@@ -405,6 +394,9 @@ const [allChats, setAllChats] = useState([] as Chat[]);
       });
       setIsLoggedIn(true);
       await loadChatHistory();
+
+      // Redirect to chat after successful signup
+      window.location.href = '/chat';
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Signup failed');
     }
