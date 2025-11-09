@@ -46,11 +46,11 @@ const [allChats, setAllChats] = useState([] as Chat[]);
     }
 
     if (oauthSuccess === 'success') {
-      // Token is in HTTP-only cookie, fetch user data from backend
+      // We already have the auth cookie, just fetch user data
       authAPI.getMe()
         .then(response => {
           const userData = response.data;
-          // Store only minimal user data (not full object)
+          // Store user data in localStorage (no sensitive info)
           localStorage.setItem('user', JSON.stringify({
             id: userData.id,
             name: userData.name,

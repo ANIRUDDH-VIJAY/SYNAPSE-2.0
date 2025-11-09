@@ -3,15 +3,15 @@ import User from '../models/User.js';
 
 export const authenticate = async (req, res, next) => {
   try {
-    // Get token from header (Bearer token) or cookie (HTTP-only cookie)
+    // Get token from cookie (primary) or header (legacy support)
     let token = null;
     
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
-    } else if (req.cookies && req.cookies.authToken) {
-      // Fallback to cookie if no Bearer token
+    // Prefer cookie-based auth
+    if (req.cookies && req.cookies.authToken) {
       token = req.cookies.authToken;
+    } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      // Legacy support for Bearer token
+      token = req.headers.authorization.split(' ')[1];
     }
     
     if (!token) {

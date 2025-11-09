@@ -10,10 +10,10 @@ const api = axios.create({
   withCredentials: true, // Include cookies (for HTTP-only auth tokens)
 });
 
-// Request interceptor: attach CSRF token from cookie
+// Request interceptor: attach CSRF token and handle authentication
 api.interceptors.request.use(
   (config) => {
-    // CSRF token from cookie
+    // CSRF token from cookie (for mutations)
     const csrfToken = document.cookie
       .split('; ')
       .find(row => row.startsWith('csrf_token='))
@@ -21,12 +21,6 @@ api.interceptors.request.use(
 
     if (csrfToken && ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '')) {
       config.headers['X-CSRF-Token'] = csrfToken;
-    }
-
-    // ✅ Attach JWT token from localStorage
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
     }
 
     return config;
