@@ -157,6 +157,26 @@ router.get('/me', authenticate, async (req, res) => {
   });
 });
 
+// POST /auth/logout
+// Clears authentication cookies and ends the session on the server side.
+router.post('/logout', (req, res) => {
+  try {
+    // Clear auth cookies set by login/signup/OAuth
+    res.clearCookie('authToken');
+    res.clearCookie('csrf_token');
+
+    // If express-session is used, destroy server-side session as well
+    if (req.session) {
+      req.session.destroy(() => {});
+    }
+
+    return res.status(200).json({ message: 'Logged out' });
+  } catch (err) {
+    console.error('Logout error:', err);
+    return res.status(500).json({ error: 'Logout failed' });
+  }
+});
+
 // PUT /auth/profile (protected) - Update user profile
 router.put('/profile', authenticate, async (req, res, next) => {
   try {

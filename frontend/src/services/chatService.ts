@@ -52,49 +52,60 @@ export class ChatService {
     this.pendingRequests.set(clientMessageId, controller);
 
     try {
-      const api = (await import('./api')).default;
-        const response = await api.post('/chat/message/stream', 
-        { 
-          text, 
-          threadId,
-          clientMessageId,
-          stream: true,
-          retryWithFallback
-        },
-        {
-          signal: controller.signal
-        }
-      );
+      // Use fetch for streaming in the browser because axios doesn't expose
+      // a readable stream for response body in browser environments.
+      const API_BASE = (import.meta.env.VITE_BACKEND_URL as string) || 'http://localhost:4000';
+      const url = `${API_BASE.replace(/\/$/, '')}/chat/message/stream`;
 
-      // Handle streaming response
-      const remainingMessages = Number(response.headers['x-dailylimit-remaining'] || 0);
+      const fetchResponse = await fetch(url, {
+        method: 'POST',
+        credentials: 'include', // include cookies for auth
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text, chatId: threadId, clientMessageId, stream: true, retryWithFallback }) ,
+        signal: controller.signal
+      });
+
+      if (!fetchResponse.ok) {
+        // If streaming endpoint doesn't exist or errors, fall back to axios
+        if (fetchResponse.status === 404) {
+          throw Object.assign(new Error('Not Found'), { response: { status: 404 } });
+        }
+        // Read body for error details
+        const errText = await fetchResponse.text().catch(() => '');
+        throw { response: { status: fetchResponse.status, data: { error: errText } } };
+      }
+
+      // Parse SSE-like streaming body
+      const reader = fetchResponse.body?.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let buffer = '';
+      let finalContent = '';
+      const remainingMessagesHeader = fetchResponse.headers.get('x-dailylimit-remaining');
+      const remainingMessages = Number(remainingMessagesHeader || 0);
       this.messageCount = 20 - remainingMessages;
 
-      // Configure response handling for streaming
-      const data = response.data;
-      if (typeof data === 'string') {
-        const lines = data.split('\n');
-        let finalContent = '';
-
+      if (!reader) {
+        // No readable stream available, fall back to reading text
+        const textBody = await fetchResponse.text();
+        // Try to parse as lines
+        const lines = (textBody || '').split('\n');
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
               const chunk: StreamChunk = JSON.parse(line.slice(6));
-              
               if (chunk.type === 'token' && chunk.content) {
                 finalContent += chunk.content;
-                // Update the placeholder message with accumulated content
-                const streamingMessage: Message = {
+                this.emit('messageUpdate', {
                   id: `ai-pending-${clientMessageId}`,
                   clientMessageId,
                   role: 'assistant',
                   status: 'streaming',
                   partialContent: finalContent
-                };
-                // Emit streaming update event
-                this.emit('messageUpdate', streamingMessage);
+                });
               } else if (chunk.type === 'done') {
-                // Send one final update to transition from streaming to done
                 const finalMessage: Message = {
                   id: `ai-${clientMessageId}`,
                   clientMessageId,
@@ -103,26 +114,76 @@ export class ChatService {
                   status: 'done',
                   timestamp: new Date().toISOString()
                 };
-
-                // Emit the final message state
                 this.emit('messageUpdate', finalMessage);
-
-                return {
-                  message: finalMessage,
-                  remainingMessages
-                };
+                return { message: finalMessage, remainingMessages };
               }
             } catch (e) {
-              console.error('Error parsing stream chunk:', e);
+              console.error('Error parsing fallback chunk:', e);
+            }
+          }
+        }
+
+        return { message: { id: `ai-${clientMessageId}`, clientMessageId, role: 'assistant', content: finalContent, status: 'done' }, remainingMessages };
+      }
+
+      while (!done) {
+        const result = await reader.read();
+        done = !!result.done;
+        const chunkText = decoder.decode(result.value || new Uint8Array(), { stream: true });
+        buffer += chunkText;
+
+        // Process any complete SSE messages in buffer (separated by double newline)
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+          const raw = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+
+          const lines = raw.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const chunk: StreamChunk = JSON.parse(line.slice(6));
+                if (chunk.type === 'token' && chunk.content) {
+                  finalContent += chunk.content;
+                  const streamingMessage: Message = {
+                    id: `ai-pending-${clientMessageId}`,
+                    clientMessageId,
+                    role: 'assistant',
+                    status: 'streaming',
+                    partialContent: finalContent
+                  };
+                  this.emit('messageUpdate', streamingMessage);
+                } else if (chunk.type === 'done') {
+                  const finalMessage: Message = {
+                    id: `ai-${clientMessageId}`,
+                    clientMessageId,
+                    role: 'assistant',
+                    content: finalContent,
+                    status: 'done',
+                    timestamp: new Date().toISOString()
+                  };
+                  this.emit('messageUpdate', finalMessage);
+                  return { message: finalMessage, remainingMessages };
+                }
+              } catch (e) {
+                console.error('Error parsing stream chunk:', e);
+              }
             }
           }
         }
       }
 
-      return {
-        message: response.data.message,
-        remainingMessages
+      // If the stream closes without a done chunk, return accumulated content
+      const finalMessage: Message = {
+        id: `ai-${clientMessageId}`,
+        clientMessageId,
+        role: 'assistant',
+        content: finalContent,
+        status: 'done',
+        timestamp: new Date().toISOString()
       };
+      this.emit('messageUpdate', finalMessage);
+      return { message: finalMessage, remainingMessages };
     } catch (err: any) {
       // If the streaming endpoint doesn't exist (404), fall back to the non-streaming endpoint
       if (err.response?.status === 404) {

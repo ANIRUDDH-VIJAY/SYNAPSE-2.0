@@ -205,8 +205,20 @@ router.post('/message/stream', async (req, res, next) => {
       }
     };
 
-    // Emit one token chunk containing the full text
-    sendData({ type: 'token', content: typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse) });
+    // Stream the assistant response word-by-word to simulate token streaming.
+    // Split on spaces and send small chunks to give the client incremental updates.
+    const text = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
+    const words = text.split(/(\s+)/); // keep spaces as tokens to preserve spacing
+
+    for (let i = 0; i < words.length; i++) {
+      // Send chunk as a token
+      sendData({ type: 'token', content: words[i] });
+
+      // Small delay so client receives chunks progressively
+      // Use a synchronous pause via Promise
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
 
     // Emit done
     sendData({ type: 'done' });

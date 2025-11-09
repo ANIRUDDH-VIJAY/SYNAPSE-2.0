@@ -16,6 +16,7 @@ interface ChatState {
 }
 
 interface ChatControllerProps {
+  currentChatId?: string | null;
   children: (props: {
     messages: Message[];
     message: string;
@@ -29,13 +30,20 @@ interface ChatControllerProps {
   }) => React.ReactNode;
 }
 
-export function ChatController({ children }: ChatControllerProps) {
+export function ChatController({ currentChatId, children }: ChatControllerProps) {
   const [state, setState] = React.useState<ChatState>({
     messages: [],
     currentMessage: '',
     isGenerating: false,
     remainingMessages: 20
   });
+
+  // Sync threadId with the currently selected chat id from parent
+  React.useEffect(() => {
+    if (currentChatId) {
+      setState(prev => ({ ...prev, threadId: currentChatId }));
+    }
+  }, [currentChatId]);
 
   const chatService = React.useMemo(() => ChatService.getInstance(), []);
 

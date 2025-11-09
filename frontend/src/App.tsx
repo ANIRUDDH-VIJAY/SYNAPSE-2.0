@@ -26,10 +26,10 @@ export default function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [currentChatId, setCurrentChatId] = useState(null as string | null);
   const [user, setUser] = useState(null as { id: string; name: string; email: string } | null);
-  const [messages, setMessages] = useState([] as Array<{ id: string; clientMessageId?: string; role: 'user' | 'assistant'; content: string; timestamp?: string; status?: string; partialContent?: string; error?: any }>);
+  const [messages, setMessages] = useState([] as Array<{ id: string; role: 'user' | 'assistant'; content: string; timestamp?: string }>);
   
-  const [starredChats, setStarredChats] = useState([] as Chat[]);
-  const [allChats, setAllChats] = useState([] as Chat[]);
+const [starredChats, setStarredChats] = useState([] as Chat[]);
+const [allChats, setAllChats] = useState([] as Chat[]);
 
   // Handle OAuth callback
   useEffect(() => {
@@ -79,6 +79,8 @@ export default function App() {
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
 
+
+    
     if (savedUser) {
       try {
         const userData = JSON.parse(savedUser);
@@ -108,8 +110,7 @@ export default function App() {
       }
     }
   }, []);
-  
-  useEffect(() => {
+    useEffect(() => {
     getCsrfToken();
   }, []);
 
@@ -161,140 +162,197 @@ export default function App() {
     if (isGenerating) {
       // Stop generation
       setIsGenerating(false);
-      return;
-    }
+    } else {
+      // Start generation
+      if (message.trim()) {
+        // Check if user is logged in
+        if (!isLoggedIn) {
+          setIsAuthOpen(true);
+          return;
+        }
 
-    if (!message.trim()) return;
+  // aiMessageId is declared here so catch/finally can reference it if an error occurs
+  let aiMessageId: string | null = null;
 
-    // Check if user is logged in
-    if (!isLoggedIn) {
-      setIsAuthOpen(true);
-      return;
-    }
+  try {
+          setIsGenerating(true);
+          
+          // Create chat if needed
+          let chatId = currentChatId;
+          if (!chatId) {
+            const createResponse = await chatAPI.createChat();
+            chatId = createResponse.data.chatId;
+            setCurrentChatId(chatId);
+          }
+          
+          // Add user message immediately
+          const userMessage = {
+            id: `user-${Date.now()}`,
+            role: 'user' as const,
+            content: String(message),
+            timestamp: new Date().toLocaleTimeString()
+          };
+          
+          setMessages(prev => [...prev, userMessage]);
+          const messageText = message;
+          setMessage('');
+          
+          // Generate a unique client message ID for deduping
+          const clientMessageId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+          
+          // Add placeholder for AI response with streaming status
+          aiMessageId = `ai-${clientMessageId}`;
+          
+          // Add placeholder message with streaming status
+          setMessages(prev => [...prev, {
+            id: aiMessageId,
+            role: 'assistant',
+            status: 'streaming',
+            content: '',
+            partialContent: 'Thinking...'
+          }]);
 
-    // Prepare clientMessageId before creating messages so streaming updates can match
-    const clientMessageId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    const userMessageId = `user-${clientMessageId}`;
-    const aiMessageId = `ai-${clientMessageId}`;
+          // (removed duplicate placeholder) -- single streaming placeholder already added above
+          
+          // Send message using ChatService which handles streaming endpoint
+          const chatService = ChatService.getInstance();
+          const response = await chatService.sendMessage({
+            text: messageText,
+            threadId: chatId,
+            clientMessageId
+          });
 
-    // Build user message with clientMessageId attached
-    const userMessage = {
-      id: userMessageId,
-      clientMessageId,
-      role: 'user' as const,
-      content: String(message),
-      timestamp: new Date().toLocaleTimeString()
-    };
+          // ChatService returns { message, remainingMessages } or { error }
+          let fullContent = '';
+          if (response?.error) {
+            console.error('ChatService returned error:', response.error);
+            // Mark the placeholder as failed with a user-friendly message
+            setMessages(prev => prev.map(msg =>
+              msg.id === aiMessageId
+                ? {
+                    ...msg,
+                    status: 'failed',
+                    error: {
+                      code: response.error.code || 'SERVER_ERROR',
+                      message: response.error.title || 'Failed to get response from server.'
+                    }
+                  }
+                : msg
+            ));
+            setIsGenerating(false);
+            await loadChatHistory();
+            return;
+          }
 
-    // Add messages locally (user message + assistant placeholder)
-    setMessages(prev => [...prev, userMessage, {
-      id: aiMessageId,
-      clientMessageId,
-      role: 'assistant' as const,
-      status: 'streaming',
-      content: '',
-      partialContent: 'Thinking...',
-      timestamp: undefined
-    }]);
+          if (response?.message?.content) {
+            fullContent = String(response.message.content);
+          } else if (response?.message?.partialContent) {
+            fullContent = String(response.message.partialContent);
+          }
 
-    const messageText = message;
-    setMessage('');
-    setIsGenerating(true);
 
-    try {
-      // Ensure chat exists
-      let chatId = currentChatId;
-      if (!chatId) {
-        const createResponse = await chatAPI.createChat();
-        chatId = createResponse.data.chatId;
-        setCurrentChatId(chatId);
-      }
 
-      // Send using ChatService. Pass clientMessageId equal to the user message id so server and client align.
-      const chatService = ChatService.getInstance();
-      const response = await chatService.sendMessage({
-        text: messageText,
-        threadId: chatId,
-        clientMessageId: userMessageId
-      });
-
-      // Handle errors from service
-      if (response?.error) {
-        console.error('ChatService returned error:', response.error);
-        setMessages(prev => prev.map(msg =>
-          msg.clientMessageId === clientMessageId
-            ? {
-                ...msg,
-                status: 'failed',
-                error: {
-                  code: response.error.code || 'SERVER_ERROR',
-                  message: response.error.title || 'Failed to get response from server.'
+          
+          // Word-by-word animation (smooth, non-blocking)
+          const words = fullContent.split(' ');
+          let currentText = '';
+          
+          // Animate word by word
+          for (let i = 0; i < words.length; i++) {
+            currentText += (i > 0 ? ' ' : '') + words[i];
+            setMessages(prev => prev.map(msg => 
+              msg.id === aiMessageId 
+                ? { ...msg, content: currentText, timestamp: new Date().toLocaleTimeString() }
+                : msg
+            ));
+            
+            // Small delay for smooth animation (10ms per word)
+            if (i < words.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
+          }
+          
+          // Ensure final message is complete
+          setMessages(prev => prev.map(msg => 
+            msg.id === aiMessageId 
+              ? { 
+                  ...msg, 
+                  content: fullContent, 
+                  timestamp: new Date().toLocaleTimeString()
                 }
-              }
-            : msg
-        ));
-        setIsGenerating(false);
-        await loadChatHistory();
-        return;
-      }
-
-      // Compose final content from response
-      let fullContent = '';
-      if (response?.message?.content) {
-        fullContent = String(response.message.content);
-      } else if (response?.message?.partialContent) {
-        fullContent = String(response.message.partialContent);
-      }
-
-      // Animate text word-by-word on the assistant placeholder (matched by clientMessageId)
-      const words = fullContent.split(' ');
-      let currentText = '';
-      for (let i = 0; i < words.length; i++) {
-        currentText += (i > 0 ? ' ' : '') + words[i];
-        setMessages(prev => prev.map(msg =>
-          msg.clientMessageId === clientMessageId && msg.role === 'assistant'
-            ? { ...msg, content: currentText, timestamp: new Date().toLocaleTimeString(), status: 'streaming' }
-            : msg
-        ));
-
-        if (i < words.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 10));
+              : msg
+          ));
+          setIsGenerating(false);
+          
+          // Reload chat history to get updated title
+          await loadChatHistory();
+          
+        } catch (error: any) {
+          console.error('Error sending message:', error);
+          
+          if (error.response?.status === 401) {
+            // If unauthorized, redirect to login
+            setIsAuthOpen(true);
+            // Update placeholder to failed state
+            setMessages(prev => prev.map(msg => 
+              msg.id === aiMessageId 
+                ? { 
+                    ...msg, 
+                    status: 'failed', 
+                    error: {
+                      code: 'AUTH_REQUIRED',
+                      message: 'Please log in to continue.'
+                    }
+                  }
+                : msg
+            ));
+          } else if (error.response?.status === 500) {
+            // Server error - keep the placeholder but mark as failed
+            setMessages(prev => prev.map(msg => 
+              msg.id === aiMessageId 
+                ? { 
+                    ...msg, 
+                    status: 'failed', 
+                    error: {
+                      code: 'SERVER_ERROR',
+                      message: 'Server error occurred. Click to retry.'
+                    }
+                  }
+                : msg
+            ));
+          } else if (error.response?.data?.code === 'DAILY_MESSAGE_LIMIT') {
+            // Daily limit exceeded
+            setMessages(prev => prev.map(msg => 
+              msg.id === aiMessageId 
+                ? { 
+                    ...msg, 
+                    status: 'failed', 
+                    error: {
+                      code: 'DAILY_MESSAGE_LIMIT',
+                      message: '[Daily message limit reached]\n• What happened: You used your 20 messages for today.\n• What you can do: Try again tomorrow.'
+                    }
+                  }
+                : msg
+            ));
+          } else {
+            // Other errors - mark as failed with error message
+            setMessages(prev => prev.map(msg => 
+              msg.id === aiMessageId 
+                ? { 
+                    ...msg, 
+                    status: 'failed', 
+                    error: {
+                      code: 'UNKNOWN_ERROR',
+                      message: error.response?.data?.error || 'Failed to send message. Click to retry.'
+                    }
+                  }
+                : msg
+            ));
+          }
+        } finally {
+          setIsGenerating(false);
         }
       }
-
-      // Finalize assistant message
-      setMessages(prev => prev.map(msg =>
-        msg.clientMessageId === clientMessageId && msg.role === 'assistant'
-          ? { ...msg, content: fullContent, timestamp: new Date().toLocaleTimeString(), status: 'complete' }
-          : msg
-      ));
-
-      setIsGenerating(false);
-
-      // Refresh chat metadata/title
-      await loadChatHistory();
-    } catch (error: any) {
-      console.error('Error sending message:', error);
-
-      // Update placeholder to failed with appropriate message
-      setMessages(prev => prev.map(msg =>
-        msg.clientMessageId === clientMessageId && msg.role === 'assistant'
-          ? {
-              ...msg,
-              status: 'failed',
-              error: {
-                code: error.response?.data?.code || (error.response?.status === 401 ? 'AUTH_REQUIRED' : 'UNKNOWN_ERROR'),
-                message: error.response?.data?.error || error.message || 'Failed to send message'
-              }
-            }
-          : msg
-      ));
-
-      if (error.response?.status === 401) {
-        setIsAuthOpen(true);
-      }
-
-      setIsGenerating(false);
     }
   };
 
@@ -450,7 +508,13 @@ export default function App() {
 
         return {
           id: msg.id || msg._id?.toString() || `msg-${index}-${Date.now()}`,
-          clientMessageId: msg.clientMessageId,
+          role: (msg.role || 'user') as 'user' | 'assistant',
+          content: normalizedContent,
+          timestamp: msg.timestamp ? (typeof msg.timestamp === 'string' ? msg.timestamp : new Date(msg.timestamp).toLocaleTimeString()) : undefined
+        };
+        
+        return {
+          id: msg.id || msg._id?.toString() || `msg-${index}-${Date.now()}`,
           role: (msg.role || 'user') as 'user' | 'assistant',
           content: normalizedContent,
           timestamp: msg.timestamp ? (typeof msg.timestamp === 'string' ? msg.timestamp : new Date(msg.timestamp).toLocaleTimeString()) : undefined
@@ -458,6 +522,8 @@ export default function App() {
       });
       
       setMessages(formattedMessages);
+
+
     } catch (error: any) {
       console.error('Error loading chat:', error);
       setMessages([]);
