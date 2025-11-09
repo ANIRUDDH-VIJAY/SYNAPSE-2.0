@@ -72,11 +72,13 @@ app.use(
     secret: process.env.SESSION_SECRET || process.env.JWT_SECRET || 'change-this-in-production',
     resave: false,
     saveUninitialized: false,
+    proxy: true, // Trust the reverse proxy
     cookie: {
       secure: process.env.NODE_ENV === 'production', // HTTPS only in production
       httpOnly: true, // Prevent XSS
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // CSRF protection: none in prod for cross-site cookies
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined // Allow sharing between subdomains in prod
     },
     // TODO: In production, use persistent store:
     // store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI })
