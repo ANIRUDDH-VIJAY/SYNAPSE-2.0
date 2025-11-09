@@ -114,31 +114,39 @@ const [allChats, setAllChats] = useState([] as Chat[]);
     getCsrfToken();
   }, []);
 
-  // Load chat history from API
+  // Load chat history from API with robust data handling
   const loadChatHistory = async () => {
     try {
       const response = await chatAPI.getChatHistory();
-      const chats = response.data;
+      const chats = Array.isArray(response.data) ? response.data : [];
       
-      // Format chats for display
-      const formattedChats: Chat[] = chats.map((chat: any) => ({
-        id: chat.id,
-        text: chat.title || 'New Chat',
-        time: formatTime(chat.updatedAt)
-      }));
+      // Format chats for display with validation
+      const formattedChats: Chat[] = chats
+        .filter(chat => chat && typeof chat === 'object') // Filter out invalid entries
+        .map((chat: any) => ({
+          id: String(chat.id || chat._id), // Ensure ID is string
+          text: typeof chat.title === 'string' ? chat.title : 'New Chat',
+          time: chat.updatedAt ? formatTime(chat.updatedAt) : 'Just now'
+        }));
       
-      // Separate starred and regular chats
-      const starred = formattedChats.filter(chat => 
-        chats.find((c: any) => c.id === chat.id)?.isStarred
-      );
-      const regular = formattedChats.filter(chat => 
-        !chats.find((c: any) => c.id === chat.id)?.isStarred
-      );
+      // Separate starred and regular chats using validated isStarred property
+      const starred = formattedChats.filter(chat => {
+        const originalChat = chats.find((c: any) => String(c.id || c._id) === chat.id);
+        return originalChat && originalChat.isStarred === true;
+      });
+      
+      const regular = formattedChats.filter(chat => {
+        const originalChat = chats.find((c: any) => String(c.id || c._id) === chat.id);
+        return !originalChat || originalChat.isStarred !== true;
+      });
       
       setStarredChats(starred);
       setAllChats(regular);
     } catch (error) {
       console.error('Error loading chat history:', error);
+      // Clear lists on error to avoid stale data
+      setStarredChats([]);
+      setAllChats([]);
     }
   };
 
@@ -506,13 +514,6 @@ const [allChats, setAllChats] = useState([] as Chat[]);
           normalizedContent = '[Error: Invalid message content]';
         }
 
-        return {
-          id: msg.id || msg._id?.toString() || `msg-${index}-${Date.now()}`,
-          role: (msg.role || 'user') as 'user' | 'assistant',
-          content: normalizedContent,
-          timestamp: msg.timestamp ? (typeof msg.timestamp === 'string' ? msg.timestamp : new Date(msg.timestamp).toLocaleTimeString()) : undefined
-        };
-        
         return {
           id: msg.id || msg._id?.toString() || `msg-${index}-${Date.now()}`,
           role: (msg.role || 'user') as 'user' | 'assistant',

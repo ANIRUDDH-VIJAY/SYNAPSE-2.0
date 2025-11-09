@@ -40,9 +40,13 @@ export function ChatController({ currentChatId, children }: ChatControllerProps)
 
   // Sync threadId with the currently selected chat id from parent
   React.useEffect(() => {
-    if (currentChatId) {
-      setState(prev => ({ ...prev, threadId: currentChatId }));
-    }
+    // Only update threadId if it's different to prevent infinite loop
+    setState(prev => {
+      if (prev.threadId !== currentChatId) {
+        return { ...prev, threadId: currentChatId || null };
+      }
+      return prev;
+    });
   }, [currentChatId]);
 
   const chatService = React.useMemo(() => ChatService.getInstance(), []);

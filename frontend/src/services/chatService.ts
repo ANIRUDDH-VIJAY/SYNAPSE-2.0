@@ -57,13 +57,20 @@ export class ChatService {
       const API_BASE = (import.meta.env.VITE_BACKEND_URL as string) || 'http://localhost:4000';
       const url = `${API_BASE.replace(/\/$/, '')}/chat/message/stream`;
 
+      // Get CSRF token from cookie for POST requests
+      const csrfToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrf_token='))
+        ?.split('=')[1];
+
       const fetchResponse = await fetch(url, {
         method: 'POST',
         credentials: 'include', // include cookies for auth
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken || '' // Add CSRF token header
         },
-        body: JSON.stringify({ text, chatId: threadId, clientMessageId, stream: true, retryWithFallback }) ,
+        body: JSON.stringify({ text, chatId: threadId, clientMessageId, stream: true, retryWithFallback }),
         signal: controller.signal
       });
 

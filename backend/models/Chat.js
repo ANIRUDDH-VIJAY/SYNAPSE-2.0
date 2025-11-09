@@ -34,7 +34,11 @@ const chatSchema = new mongoose.Schema({
   },
   title: {
     type: String,
-    default: null
+    default: 'New Chat',
+    set: function(value) {
+      // Ensure title is never empty or non-string
+      return typeof value === 'string' && value.trim() ? value.trim() : 'New Chat';
+    }
   },
   messages: [messageSchema],
   isStarred: {
@@ -45,27 +49,56 @@ const chatSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Generate title from first user message
+// Generate title from first user message with improved handling
 chatSchema.methods.generateTitle = async function() {
+  if (this.title !== 'New Chat') {
+    // Skip if we already have a custom title
+    return;
+  }
+
   const firstUserMessage = this.messages.find(m => m.role === 'user');
-  if (firstUserMessage && !this.title) {
-    try {
-      // Take first 50 chars, truncate at last space
-      let title = firstUserMessage.content;
-      if (typeof title === 'string') {
-        title = title.substring(0, 50);
-        const lastSpace = title.lastIndexOf(' ');
-        if (lastSpace > 20) {
-          title = title.substring(0, lastSpace);
-        }
-        this.title = title + (firstUserMessage.content.length > 50 ? '...' : '');
-      } else {
-        this.title = 'New Chat';
-      }
-    } catch (err) {
-      console.error('Error generating title:', err);
+  if (!firstUserMessage) {
+    this.title = 'New Chat';
+    return;
+  }
+
+  try {
+    let content = firstUserMessage.content;
+    
+    // Ensure content is a string and not empty
+    if (typeof content !== 'string' || !content.trim()) {
       this.title = 'New Chat';
+      return;
     }
+
+    content = content.trim();
+
+    // Take first 50 chars and find a good truncation point
+    let title = content.substring(0, 50);
+    
+    // Try to break at sentence end first
+    let breakPoint = Math.max(
+      title.lastIndexOf('. '),
+      title.lastIndexOf('? '),
+      title.lastIndexOf('! ')
+    );
+
+    // If no sentence break, try breaking at last space
+    if (breakPoint < 20) {
+      breakPoint = title.lastIndexOf(' ');
+    }
+
+    // If we found a good break point, use it
+    if (breakPoint >= 20) {
+      title = title.substring(0, breakPoint);
+    }
+
+    // Add ellipsis if we truncated
+    this.title = title + (content.length > title.length ? '...' : '');
+
+  } catch (err) {
+    console.error('Error generating title:', err);
+    this.title = 'New Chat';
   }
 };
 

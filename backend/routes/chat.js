@@ -205,25 +205,38 @@ router.post('/message/stream', async (req, res, next) => {
       }
     };
 
-    // Stream the assistant response word-by-word to simulate token streaming.
-    // Split on spaces and send small chunks to give the client incremental updates.
-  const aiText = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
-  const words = aiText.split(/(\s+)/); // keep spaces as tokens to preserve spacing
+    // Stream the assistant response word-by-word with better token handling
+    const normalizeContent = (text) => {
+      if (typeof text !== 'string') {
+        try {
+          return JSON.stringify(text);
+        } catch (e) {
+          return String(text || '');
+        }
+      }
+      return text;
+    };
 
-    for (let i = 0; i < words.length; i++) {
-      // Send chunk as a token
-      sendData({ type: 'token', content: words[i] });
+    const aiContent = normalizeContent(aiResponse);
+    const words = aiContent.split(/(\s+)/); // Split on spaces but keep the spaces
+    const chunkSize = 3; // Send 3 words at a time for smoother streaming
 
-      // Small delay so client receives chunks progressively
-      // Use a synchronous pause via Promise
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise(resolve => setTimeout(resolve, 20));
+    // Send chunks of words with preserved spacing
+    for (let i = 0; i < words.length; i += chunkSize) {
+      const chunk = words.slice(i, i + chunkSize).join('');
+      if (chunk) {
+        sendData({ type: 'token', content: chunk });
+        // Small delay between chunks for smooth streaming
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(resolve => setTimeout(resolve, 15));
+      }
     }
 
-    // Emit done
+    // Signal completion
     sendData({ type: 'done' });
 
-    // End response
+    // Ensure final line feed and end response
+    res.write('\n');
     res.end();
   } catch (error) {
     next(error);
@@ -234,23 +247,56 @@ router.post('/message/stream', async (req, res, next) => {
 // GET /chat/history
 router.get('/history', async (req, res, next) => {
   try {
-    const chats = await Chat.find({ userId: req.user._id })
-      .select('_id title isStarred createdAt updatedAt messages')
-      .sort({ updatedAt: -1 })
-      .lean();
+    // Validate user ID to prevent potential errors
+    if (!req.user?._id) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
-    const chatList = chats.map(chat => ({
-      id: chat._id,
-      title: chat.title || 'New Chat',
-      isStarred: chat.isStarred,
-      createdAt: chat.createdAt,
-      updatedAt: chat.updatedAt,
-      messageCount: chat.messages.length
-    }));
+    // Fetch chats with proper error handling
+    let chats;
+    try {
+      chats = await Chat.find({ userId: req.user._id })
+        .select('_id title isStarred createdAt updatedAt messages')
+        .sort({ updatedAt: -1 })
+        .lean()
+        .exec();
+    } catch (dbError) {
+      console.error('Database error fetching chats:', dbError);
+      return res.status(500).json({ error: 'Failed to fetch chat history' });
+    }
 
+    // Ensure we have an array to work with
+    if (!Array.isArray(chats)) {
+      console.warn('Chat.find returned non-array:', chats);
+      chats = [];
+    }
+
+    // Map chats with validation for each field
+    const chatList = chats.map(chat => {
+      // Ensure chat object is valid
+      if (!chat || typeof chat !== 'object') {
+        console.warn('Invalid chat object in results:', chat);
+        return null;
+      }
+
+      return {
+        id: String(chat._id), // Ensure ID is string
+        title: typeof chat.title === 'string' ? chat.title : 'New Chat',
+        isStarred: Boolean(chat.isStarred), // Normalize to boolean
+        createdAt: chat.createdAt instanceof Date ? chat.createdAt : new Date(),
+        updatedAt: chat.updatedAt instanceof Date ? chat.updatedAt : new Date(),
+        messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0
+      };
+    }).filter(chat => chat !== null); // Remove any invalid entries
+
+    // Return empty array if no valid chats found
     res.json(chatList);
   } catch (error) {
-    next(error);
+    console.error('Unexpected error in chat history:', error);
+    res.status(500).json({ 
+      error: 'Failed to process chat history',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 

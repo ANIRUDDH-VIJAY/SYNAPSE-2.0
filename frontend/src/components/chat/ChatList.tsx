@@ -75,20 +75,27 @@ export function ChatList({
         </div>
         
         <ScrollArea className="flex-1 min-h-0">
-          <div className="space-y-1 pr-3">
-            {allChats.map((chat) => (
-              <ChatListItem
-                key={chat.id}
-                chat={chat}
-                theme={theme}
-                isStarred={false}
-                isActive={activeChatId === chat.id}
-                onToggleStar={() => onToggleStar(chat.id, false)}
-                onSelect={() => onChatSelect?.(chat.id)}
-                onDelete={() => onDeleteChat?.(chat.id)}
-              />
-            ))}
-          </div>
+          {allChats.length > 0 ? (
+            <div className="space-y-1 pr-3">
+              {allChats.map((chat) => (
+                <ChatListItem
+                  key={chat.id}
+                  chat={chat}
+                  theme={theme}
+                  isStarred={false}
+                  isActive={activeChatId === chat.id}
+                  onToggleStar={() => onToggleStar(chat.id, false)}
+                  onSelect={() => onChatSelect?.(chat.id)}
+                  onDelete={() => onDeleteChat?.(chat.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className={`px-3 py-4 text-center ${isLight ? 'text-slate-400' : 'text-slate-600'}`}>
+              <p className="text-xs">No chats yet</p>
+              <p className="text-xs mt-1">Start a new conversation to get started</p>
+            </div>
+          )}
         </ScrollArea>
       </div>
     </div>
