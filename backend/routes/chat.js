@@ -207,8 +207,8 @@ router.post('/message/stream', async (req, res, next) => {
 
     // Stream the assistant response word-by-word to simulate token streaming.
     // Split on spaces and send small chunks to give the client incremental updates.
-    const text = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
-    const words = text.split(/(\s+)/); // keep spaces as tokens to preserve spacing
+  const aiText = typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse);
+  const words = aiText.split(/(\s+)/); // keep spaces as tokens to preserve spacing
 
     for (let i = 0; i < words.length; i++) {
       // Send chunk as a token
