@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -8,9 +7,24 @@ if (!process.env.GEMINI_API_KEY || !process.env.GEMINI_API_KEY.trim()) {
   console.warn('⚠️  GEMINI_API_KEY is not set. AI features will not work.');
 }
 
-const genAI = process.env.GEMINI_API_KEY 
-  ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim())
-  : null;
+// genAI will be initialized on-demand inside getGeminiAPIResponse
+let genAI = null;
+
+async function ensureClient() {
+  if (genAI) return genAI;
+  if (!process.env.GEMINI_API_KEY || !process.env.GEMINI_API_KEY.trim()) {
+    return null;
+  }
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim());
+    return genAI;
+  } catch (e) {
+    console.error('Failed to initialize Google Generative AI client:', e?.message || e);
+    genAI = null;
+    return null;
+  }
+}
 
 // Best → fallback order
 const MODELS_TO_TRY = [
@@ -52,8 +66,9 @@ function buildHistory(messages) {
  * Conversational response with fallback + streaming correctness.
  */
 async function getGeminiAPIResponse(messages) {
-  if (!genAI) {
-    throw new Error("Gemini API key is not configured. Please set GEMINI_API_KEY in your environment variables.");
+  const client = await ensureClient();
+  if (!client) {
+    throw new Error("Gemini API key is not configured or client failed to initialize. Please set GEMINI_API_KEY in your environment variables.");
   }
   
   if (!messages || messages.length === 0) {
@@ -67,7 +82,7 @@ async function getGeminiAPIResponse(messages) {
 
   for (const modelName of MODELS_TO_TRY) {
     try {
-      const model = genAI.getGenerativeModel({ model: modelName });
+      const model = client.getGenerativeModel({ model: modelName });
       const chat = model.startChat({ history });
 
       const result = await chat.sendMessage(newPrompt);
