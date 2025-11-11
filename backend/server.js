@@ -18,48 +18,30 @@ const PORT = process.env.PORT || 4000;
 app.use(helmet({
   contentSecurityPolicy: false // Allow OAuth redirects
 }));
-// CORS configuration - strict in production, permissive in development
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'https://synapse-2-0.vercel.app'
-].filter(Boolean);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // In production, be strict about origins
-    if (process.env.NODE_ENV === 'production') {
-      if (!origin) {
-        // In production, reject requests with no origin for security
-        return callback(new Error('CORS: Origin required in production'));
-      }
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    } else {
-      // Development: more permissive
-      if (!origin) {
-        // Allow no-origin requests in dev (for tools like Postman)
-        return callback(null, true);
-      }
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-        // Allow any localhost in development
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    }
-  },
-  credentials: true, // Required for cookies
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Message-Id', 'X-Retry-With-Fallback'], // Allow custom headers
-  exposedHeaders: ['Content-Type']
-}));
+// CORS configuration: in production allow only FRONTEND_URL; in development allow localhost and dev origins
+if (process.env.NODE_ENV === 'production') {
+  app.use(cors({
+    origin: process.env.FRONTEND_URL || undefined,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Message-Id', 'X-Retry-With-Fallback'],
+    exposedHeaders: ['Content-Type']
+  }));
+} else {
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return callback(null, true);
+      // allow explicit FRONTEND_URL in dev if provided
+      if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) return callback(null, true);
+      return callback(null, true); // permissive for dev
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Message-Id', 'X-Retry-With-Fallback'],
+    exposedHeaders: ['Content-Type']
+  }));
+}
 app.use(morgan('dev'));
 app.use(cookieParser()); // Parse cookies
 app.use(express.json({ limit: '10mb' }));
@@ -76,9 +58,10 @@ app.use(
     cookie: {
       secure: process.env.NODE_ENV === 'production', // HTTPS only in production
       httpOnly: true, // Prevent XSS
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // CSRF protection: none in prod for cross-site cookies
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined // Allow sharing between subdomains in prod
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // CSRF protection: none in prod for cross-site cookies
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        // Allow explicit cookie domain override via COOKIE_DOMAIN, otherwise derive from FRONTEND_URL in prod
+        domain: process.env.COOKIE_DOMAIN || (process.env.NODE_ENV === 'production' && process.env.FRONTEND_URL ? new URL(process.env.FRONTEND_URL).hostname : undefined)
     },
     // TODO: In production, use persistent store:
     // store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI })
@@ -100,7 +83,23 @@ app.use(limiter);
 // MongoDB connection with retry
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    let mongoUri = process.env.MONGODB_URI;
+
+    // Optionally use in-memory MongoDB for local testing when USE_MEMORY_DB=true
+    if (!mongoUri || process.env.USE_MEMORY_DB === 'true') {
+      try {
+        const { MongoMemoryServer } = await import('mongodb-memory-server');
+        const ms = await MongoMemoryServer.create();
+        mongoUri = ms.getUri();
+        console.log('ℹ️  Using in-memory MongoDB for dev/testing at', mongoUri);
+      } catch (e) {
+        console.warn('⚠️  Failed to start in-memory MongoDB:', e?.message || e);
+      }
+    }
+
+    if (!mongoUri) throw new Error('No MongoDB URI configured');
+
+    await mongoose.connect(mongoUri);
     console.log('✅ MongoDB connected');
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);
@@ -128,6 +127,22 @@ app.use('/feedback', csrfProtect, feedbackRoutes);
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
+});
+
+// DB test endpoint - useful for verifying DB connectivity in local/dev
+app.get('/db-test', async (req, res) => {
+  try {
+    if (!mongoose.connection || !mongoose.connection.db) {
+      return res.status(500).json({ ok: false, error: 'MongoDB not connected' });
+    }
+    const col = mongoose.connection.db.collection('synapse_test');
+    const result = await col.insertOne({ createdAt: new Date(), note: 'hello from db-test' });
+    const inserted = await col.findOne({ _id: result.insertedId });
+    return res.json({ ok: true, inserted });
+  } catch (e) {
+    console.error('db-test error', e);
+    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
 });
 
 // Global error handler

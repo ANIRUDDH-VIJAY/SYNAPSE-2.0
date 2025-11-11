@@ -7,6 +7,8 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from '../ui/sheet';
 import { ChatWindow } from '../chat/ChatWindow';
+import { getAuthToken } from '../../utils/auth';
+import { postChatMessage } from '../../utils/network';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -196,7 +198,7 @@ export function ChatPage({
                     </div>
                     <div className="absolute right-2 top-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
-                        onClick={() => onToggleStar(chat.id, true)}
+                        onClick={() => callToggleStar(chat.id, true)}
                         className={`p-1 rounded hover:bg-slate-200/50 ${isLight ? '' : 'hover:bg-slate-700/50'}`}
                         title="Unstar"
                       >
@@ -250,7 +252,7 @@ export function ChatPage({
                   </div>
                   <div className="absolute right-2 top-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button 
-                      onClick={() => onToggleStar(chat.id, false)}
+                      onClick={() => callToggleStar(chat.id, false)}
                       className={`p-1 rounded hover:bg-slate-200/50 ${isLight ? '' : 'hover:bg-slate-700/50'}`}
                       title="Star chat"
                     >
@@ -329,6 +331,43 @@ export function ChatPage({
       </div>
     </>
   );
+
+  // Adapter for star toggle: keep backward compatibility with Sidebar's onToggleStar(id)
+  const callToggleStar = (id: string, isStarred?: boolean) => {
+    try {
+      if (typeof onToggleStar !== 'function') return;
+      // If the provided handler expects a single argument (legacy Sidebar)
+      if ((onToggleStar as any).length === 1) {
+        (onToggleStar as any)(id);
+      } else {
+        onToggleStar(id, Boolean(isStarred));
+      }
+    } catch (e) {
+      console.error('Error calling onToggleStar adapter', e);
+    }
+  };
+
+  // Send message to backend using VITE_BACKEND_URL and auth token
+  const sendMessageToBackend = async (text: string, chatId?: string) => {
+    try {
+      await postChatMessage(text, chatId);
+    } catch (err) {
+      console.error('Failed to send message to backend', err);
+    }
+  };
+
+  // Local wrapper used by UI - calls existing local handler, then posts to backend
+  const handleSendWrapper = () => {
+    try {
+      handleSendOrStop();
+    } catch (e) {
+      console.error('local handleSendOrStop error', e);
+    }
+
+    // Post message to backend as a best-effort background action
+    const text = (message || '').trim();
+    if (text) sendMessageToBackend(text, currentChatId || undefined);
+  };
 
   return (
     <div className={`flex h-screen ${isLight ? 'bg-gradient-to-br from-blue-50 via-white to-indigo-50' : 'bg-slate-950'}`}>
@@ -417,9 +456,9 @@ export function ChatPage({
               messages={messages || []}
               message={message}
               onMessageChange={setMessage}
-              onSendMessage={handleSendOrStop}
-              onResendMessage={handleSendOrStop}
-              onStopGeneration={handleSendOrStop}
+              onSendMessage={handleSendWrapper}
+              onResendMessage={handleSendWrapper}
+              onStopGeneration={handleSendWrapper}
               isGenerating={isGenerating}
               error={undefined}
               onDismissError={() => {}}
@@ -528,13 +567,13 @@ export function ChatPage({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
-                      handleSendOrStop();
+                      handleSendWrapper();
                     }
                   }}
                 />
                 <Button 
                   size="icon" 
-                  onClick={handleSendOrStop}
+                  onClick={handleSendWrapper}
                   className={`h-10 w-10 lg:h-11 lg:w-11 rounded-xl flex-shrink-0 transition-all ${
                     isGenerating 
                       ? 'bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/25' 
