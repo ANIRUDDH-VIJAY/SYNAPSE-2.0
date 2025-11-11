@@ -213,6 +213,9 @@ const getFrontendUrl = () => {
   return process.env.FRONTEND_URL || 'http://localhost:5173';
 };
 
+// Resolved backend URL (support VITE_ fallback)
+const resolvedBackendUrl = process.env.BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://localhost:4000';
+
 // Helper function to check if strategy is registered
 const isStrategyRegistered = (strategyName) => {
   return passport._strategies && passport._strategies[strategyName];
@@ -225,7 +228,9 @@ const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
 if (googleClientId && googleClientSecret) {
   router.get('/google', (req, res, next) => {
     if (isStrategyRegistered('google')) {
-      passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+      // Ensure the redirect_uri sent to Google matches the runtime backend URL
+      const callbackURL = process.env.GOOGLE_CALLBACK_URL || `${resolvedBackendUrl}/auth/google/callback`;
+      passport.authenticate('google', { scope: ['profile', 'email'], callbackURL })(req, res, next);
     } else {
       res.status(503).json({ error: 'Google OAuth strategy is not registered' });
     }
@@ -235,7 +240,8 @@ if (googleClientId && googleClientSecret) {
     '/google/callback',
     (req, res, next) => {
       if (isStrategyRegistered('google')) {
-        passport.authenticate('google', { session: false, failureRedirect: `${getFrontendUrl()}?error=oauth_failed` })(req, res, next);
+        const callbackURL = process.env.GOOGLE_CALLBACK_URL || `${resolvedBackendUrl}/auth/google/callback`;
+        passport.authenticate('google', { session: false, failureRedirect: `${getFrontendUrl()}?error=oauth_failed`, callbackURL })(req, res, next);
       } else {
         res.redirect(`${getFrontendUrl()}?error=oauth_failed`);
       }
@@ -284,7 +290,8 @@ const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim();
 if (githubClientId && githubClientSecret) {
   router.get('/github', (req, res, next) => {
     if (isStrategyRegistered('github')) {
-      passport.authenticate('github', { scope: ['user:email'] })(req, res, next);
+      const callbackURL = process.env.GITHUB_CALLBACK_URL || `${resolvedBackendUrl}/auth/github/callback`;
+      passport.authenticate('github', { scope: ['user:email'], callbackURL })(req, res, next);
     } else {
       res.status(503).json({ error: 'GitHub OAuth strategy is not registered' });
     }
@@ -294,7 +301,8 @@ if (githubClientId && githubClientSecret) {
     '/github/callback',
     (req, res, next) => {
       if (isStrategyRegistered('github')) {
-        passport.authenticate('github', { session: false, failureRedirect: `${getFrontendUrl()}?error=oauth_failed` })(req, res, next);
+        const callbackURL = process.env.GITHUB_CALLBACK_URL || `${resolvedBackendUrl}/auth/github/callback`;
+        passport.authenticate('github', { session: false, failureRedirect: `${getFrontendUrl()}?error=oauth_failed`, callbackURL })(req, res, next);
       } else {
         res.redirect(`${getFrontendUrl()}?error=oauth_failed`);
       }

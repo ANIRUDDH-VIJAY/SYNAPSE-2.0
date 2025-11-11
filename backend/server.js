@@ -18,10 +18,12 @@ const PORT = process.env.PORT || 4000;
 app.use(helmet({
   contentSecurityPolicy: false // Allow OAuth redirects
 }));
-// CORS configuration: in production allow only FRONTEND_URL; in development allow localhost and dev origins
+// Resolve frontend/backend URLs (support VITE_ fallbacks so existing env names don't need changing)
+const resolvedFrontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL;
+const resolvedBackendUrl = process.env.BACKEND_URL || process.env.VITE_BACKEND_URL;
 if (process.env.NODE_ENV === 'production') {
   app.use(cors({
-    origin: process.env.FRONTEND_URL || undefined,
+    origin: resolvedFrontendUrl || undefined,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Message-Id', 'X-Retry-With-Fallback'],
@@ -32,8 +34,8 @@ if (process.env.NODE_ENV === 'production') {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
       if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) return callback(null, true);
-      // allow explicit FRONTEND_URL in dev if provided
-      if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) return callback(null, true);
+      // allow explicit FRONTEND_URL or VITE_FRONTEND_URL in dev if provided
+      if (resolvedFrontendUrl && origin === resolvedFrontendUrl) return callback(null, true);
       return callback(null, true); // permissive for dev
     },
     credentials: true,
@@ -60,8 +62,12 @@ app.use(
       httpOnly: true, // Prevent XSS
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // CSRF protection: none in prod for cross-site cookies
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-        // Allow explicit cookie domain override via COOKIE_DOMAIN, otherwise derive from FRONTEND_URL in prod
-        domain: process.env.COOKIE_DOMAIN || (process.env.NODE_ENV === 'production' && process.env.FRONTEND_URL ? new URL(process.env.FRONTEND_URL).hostname : undefined)
+  // Allow explicit cookie domain override via COOKIE_DOMAIN, otherwise derive from BACKEND_URL (or VITE_BACKEND_URL) in prod
+  // NOTE: cookie domain must match the backend host that receives the OAuth callback so the session
+  // cookie is sent on the /auth/google/callback request. Using FRONTEND_URL here previously caused
+  // the cookie to be scoped to the frontend domain (so it wasn't sent to the backend), which breaks
+  // Passport state/session verification on OAuth callback.
+  domain: process.env.COOKIE_DOMAIN || (process.env.NODE_ENV === 'production' && (process.env.BACKEND_URL || process.env.VITE_BACKEND_URL) ? new URL(process.env.BACKEND_URL || process.env.VITE_BACKEND_URL).hostname : undefined)
     },
     // TODO: In production, use persistent store:
     // store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI })
@@ -129,6 +135,26 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
+// Diagnostic endpoint: returns resolved callback URLs, backend/frontend and cookie domain
+app.get('/auth/callbacks', (req, res) => {
+  try {
+    const resolvedGoogleCallback = process.env.GOOGLE_CALLBACK_URL || `${resolvedBackendUrl || 'http://localhost:4000'}/auth/google/callback`;
+    const resolvedGithubCallback = process.env.GITHUB_CALLBACK_URL || `${resolvedBackendUrl || 'http://localhost:4000'}/auth/github/callback`;
+    const cookieDomain = process.env.COOKIE_DOMAIN || (process.env.NODE_ENV === 'production' && (process.env.BACKEND_URL || process.env.VITE_BACKEND_URL) ? new URL(process.env.BACKEND_URL || process.env.VITE_BACKEND_URL).hostname : undefined);
+
+    return res.json({
+      ok: true,
+      resolvedBackendUrl: resolvedBackendUrl || null,
+      resolvedFrontendUrl: resolvedFrontendUrl || null,
+      googleCallback: resolvedGoogleCallback,
+      githubCallback: resolvedGithubCallback,
+      cookieDomain: cookieDomain || null
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // DB test endpoint - useful for verifying DB connectivity in local/dev
 app.get('/db-test', async (req, res) => {
   try {
@@ -181,7 +207,18 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
+// Print resolved runtime values for easier debugging in deployed environments
+const resolvedGoogleCallback = process.env.GOOGLE_CALLBACK_URL || `${resolvedBackendUrl || 'http://localhost:4000'}/auth/google/callback`;
+const resolvedGithubCallback = process.env.GITHUB_CALLBACK_URL || `${resolvedBackendUrl || 'http://localhost:4000'}/auth/github/callback`;
+const cookieDomain = process.env.COOKIE_DOMAIN || (process.env.NODE_ENV === 'production' && (process.env.BACKEND_URL || process.env.VITE_BACKEND_URL) ? new URL(process.env.BACKEND_URL || process.env.VITE_BACKEND_URL).hostname : undefined);
+
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.info('Runtime values:');
+  console.info('  resolvedBackendUrl:', resolvedBackendUrl || 'not set (falls back to localhost)');
+  console.info('  resolvedFrontendUrl:', resolvedFrontendUrl || 'not set (falls back to localhost dev)');
+  console.info('  googleCallback:', resolvedGoogleCallback);
+  console.info('  githubCallback:', resolvedGithubCallback);
+  console.info('  cookieDomain:', cookieDomain || 'not set (host-only cookie)');
 });
 

@@ -34,16 +34,22 @@ passport.deserializeUser(async (id, done) => {
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
+// Resolve and log the callback URL used at runtime for easier debugging in deployed environments
+const resolvedBackendUrl = process.env.BACKEND_URL || process.env.VITE_BACKEND_URL;
+const resolvedGoogleCallback = process.env.GOOGLE_CALLBACK_URL || `${resolvedBackendUrl || 'http://localhost:4000'}/auth/google/callback`;
+if (resolvedBackendUrl && (!googleClientId || !googleClientSecret)) {
+  console.warn('⚠️ BACKEND_URL (or VITE_BACKEND_URL) is set but Google client ID/secret are missing; OAuth will not be enabled for Google.');
+}
+
 if (googleClientId && googleClientSecret) {
+  console.info(`ℹ️ Google OAuth callback URL resolved to: ${resolvedGoogleCallback}`);
   passport.use(
     'google',
     new GoogleStrategy(
       {
         clientID: googleClientId,
         clientSecret: googleClientSecret,
-        callbackURL:
-          process.env.GOOGLE_CALLBACK_URL ||
-          `${process.env.BACKEND_URL || 'http://localhost:4000'}/auth/google/callback`
+        callbackURL: resolvedGoogleCallback
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
@@ -103,16 +109,21 @@ if (googleClientId && googleClientSecret) {
 const githubClientId = process.env.GITHUB_CLIENT_ID?.trim();
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim();
 
+// Resolve and log GitHub callback URL
+const resolvedGithubCallback = process.env.GITHUB_CALLBACK_URL || `${resolvedBackendUrl || 'http://localhost:4000'}/auth/github/callback`;
+if (resolvedBackendUrl && (!githubClientId || !githubClientSecret)) {
+  console.warn('⚠️ BACKEND_URL (or VITE_BACKEND_URL) is set but GitHub client ID/secret are missing; OAuth will not be enabled for GitHub.');
+}
+
 if (githubClientId && githubClientSecret) {
+  console.info(`ℹ️ GitHub OAuth callback URL resolved to: ${resolvedGithubCallback}`);
   passport.use(
     'github',
     new GitHubStrategy(
       {
         clientID: githubClientId,
         clientSecret: githubClientSecret,
-        callbackURL:
-          process.env.GITHUB_CALLBACK_URL ||
-          `${process.env.BACKEND_URL || 'http://localhost:4000'}/auth/github/callback`
+        callbackURL: resolvedGithubCallback
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
