@@ -16,19 +16,19 @@ jobs:
           node-version: '18'
 
       - name: Frontend build
-        working-directory: frontend
         run: |
+          cd frontend
           npm ci
           npm run build
 
       - name: Backend env check
-        working-directory: backend
         run: |
+          cd backend
           npm ci
           node ./scripts/check-env.js
 
       - name: Run frontend unit tests
-        working-directory: frontend
         run: |
+          cd frontend
           npm ci
           npm run test:unit
