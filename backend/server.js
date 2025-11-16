@@ -19,17 +19,31 @@ app.use(helmet({
   contentSecurityPolicy: false // Allow OAuth redirects
 }));
 // Resolve frontend/backend URLs (support VITE_ fallbacks so existing env names don't need changing)
-const resolvedFrontendUrl = process.env.FRONTEND_URL || process.env.VITE_FRONTEND_URL;
+const resolvedFrontendUrl =
+  process.env.FRONTEND_URL ||
+  process.env.VITE_FRONTEND_URL ||
+  "https://synapse-2-0.vercel.app"; // fallback for production deploy
 const resolvedBackendUrl = process.env.BACKEND_URL || process.env.VITE_BACKEND_URL;
 if (process.env.NODE_ENV === 'production') {
   app.use(cors({
-    origin: resolvedFrontendUrl || undefined,
+    origin: [
+      resolvedFrontendUrl,              // the real frontend
+      "http://localhost:5173",          // dev fallback
+      "http://127.0.0.1:5173"
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Client-Message-Id', 'X-Retry-With-Fallback'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-CSRF-Token',
+      'X-Client-Message-Id',
+      'X-Retry-With-Fallback'
+    ],
     exposedHeaders: ['Content-Type']
   }));
-} else {
+}
+ else {
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
