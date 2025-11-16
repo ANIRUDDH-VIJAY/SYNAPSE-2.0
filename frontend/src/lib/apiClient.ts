@@ -19,7 +19,9 @@ export class ApiClient {
   private static instance: ApiClient;
   private baseUrl: string;
   private defaultHeaders: Record<string, string>;
-  
+
+  private csrfToken?: string;
+
   private constructor(config: ApiConfig) {
     this.baseUrl = config.baseUrl;
     this.defaultHeaders = {
@@ -38,54 +40,8 @@ export class ApiClient {
     return this.instance;
   }
 
-  private csrfToken?: string;
-
   setCsrfToken(token: string) {
     this.csrfToken = token;
-  }
-
-  async request<T>(
-    path: string,
-    options: RequestInit = {},
-    headers: Record<string, string> = {}
-  ): Promise<T> {
-    // Add CSRF token if available
-    if (this.csrfToken && (options.method === 'POST' || options.method === 'PUT' || options.method === 'DELETE')) {
-      headers['X-CSRF-Token'] = this.csrfToken;
-    }
-    try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
-        ...options,
-        headers: {
-          ...this.defaultHeaders,
-          ...headers
-        }
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new ApiError(data.error || {
-          title: 'Server error — something went wrong.',
-          what: 'Unexpected server error.',
-          action: 'Please try again.',
-          code: 'SERVER_ERROR'
-        });
-      }
-
-      return data;
-    } catch (err) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      
-      throw new ApiError({
-        title: 'Network error — unable to reach server.',
-        what: 'Connection failed or timed out.',
-        action: 'Check your connection and try again.',
-        code: 'NETWORK_FAILURE'
-      });
-    }
   }
 
   setAuthToken(token: string) {
@@ -95,9 +51,68 @@ export class ApiClient {
   clearAuthToken() {
     delete this.defaultHeaders['Authorization'];
   }
+
+  async request<T>(
+    path: string,
+    options: RequestInit = {},
+    headers: Record<string, string> = {}
+  ): Promise<T> {
+
+    // Add CSRF if required
+    if (
+      this.csrfToken &&
+      (options.method === 'POST' ||
+        options.method === 'PUT' ||
+        options.method === 'DELETE')
+    ) {
+      headers['X-CSRF-Token'] = this.csrfToken;
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        ...options,
+        credentials: 'include', // Required for cookies
+        headers: {
+          ...this.defaultHeaders,
+          ...headers
+        }
+      });
+
+      let data: any = null;
+
+      try {
+        data = await response.json();
+      } catch {
+        // Some API routes return empty body (204)
+        data = {};
+      }
+
+      if (!response.ok) {
+        throw new ApiError(
+          data?.error || {
+            title: 'Server error — something went wrong.',
+            what: 'Unexpected server error.',
+            action: 'Please try again.',
+            code: 'SERVER_ERROR'
+          }
+        );
+      }
+
+      return data;
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+
+      throw new ApiError({
+        title: 'Network error — unable to reach server.',
+        what: 'Connection failed or timed out.',
+        action: 'Check your connection and try again.',
+        code: 'NETWORK_FAILURE'
+      });
+    }
+  }
 }
 
-// Initialize with environment variables
+// Initialize global instance
 export const api = ApiClient.getInstance({
   baseUrl: import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000'
 });
