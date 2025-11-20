@@ -132,6 +132,10 @@ const connectDB = async () => {
   }
 };
 connectDB();
+// Apply CSRF protection to all state-changing routes
+app.use('/auth', authRoutes);
+app.use('/chat', csrfProtect, chatRoutes);
+app.use('/admin', csrfProtect, adminRoutes);
 app.use('/feedback', csrfProtect, feedbackRoutes);
 
 // Health check
