@@ -30,7 +30,7 @@ export class ChatService {
   private messageCount = 0;
   private messageUpdateListeners: Set<MessageUpdateListener> = new Set();
 
-  private constructor() {}
+  private constructor() { }
 
   static getInstance(): ChatService {
     if (!this.instance) {
@@ -53,10 +53,8 @@ export class ChatService {
     this.pendingRequests.set(clientMessageId, controller);
 
     // GLOBAL TOKEN EXTRACTION (fix for TypeScript scope errors)
-    const csrfToken =
-      document.cookie
-        .split('; ')
-        .find(row => row.startsWith('csrf_token='))?.split('=')[1] || '';
+    const { getStoredCsrfToken } = await import('./api');
+    const csrfToken = getStoredCsrfToken() || '';
 
     const authToken = localStorage.getItem('authToken') || '';
 
@@ -137,7 +135,7 @@ export class ChatService {
                 this.emit('messageUpdate', finalMessage);
                 return { message: finalMessage, remainingMessages };
               }
-            } catch {}
+            } catch { }
           }
         }
 
@@ -194,7 +192,7 @@ export class ChatService {
                   this.emit('messageUpdate', finalMessage);
                   return { message: finalMessage, remainingMessages };
                 }
-              } catch {}
+              } catch { }
             }
           }
         }
@@ -217,8 +215,12 @@ export class ChatService {
         try {
           const api = (await import('./api')).default;
 
-          api.setAuthToken(authToken);
-          api.setCsrfToken(csrfToken);
+          // api.setAuthToken(authToken); // Method doesn't exist
+          // api.setCsrfToken(csrfToken); // Method doesn't exist
+
+          // Set headers for this request specifically
+          api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
+          api.defaults.headers.common['X-CSRF-Token'] = csrfToken;
 
           const res = await api.post('/chat/message', {
             chatId: threadId,

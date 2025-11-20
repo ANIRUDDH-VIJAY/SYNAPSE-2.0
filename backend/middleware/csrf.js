@@ -8,10 +8,11 @@ export const csrfProtect = (req, res, next) => {
   // Always ensure a CSRF token exists in cookie
   if (!req.cookies?.csrf_token) {
     const token = generateToken();
+    const isSecure = process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.cookie('csrf_token', token, {
       httpOnly: false, // Must be accessible from JS
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: isSecure,
+      sameSite: isSecure ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
     req.cookies.csrf_token = token;
@@ -28,7 +29,7 @@ export const csrfProtect = (req, res, next) => {
 
   // Both must be present and match
   if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'CSRF token validation failed',
       code: 'CSRF_ERROR'
     });

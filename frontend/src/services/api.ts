@@ -14,18 +14,17 @@ const api = axios.create({
 // ------------------------------------------------
 // FIXED CSRF INTERCEPTOR — ALWAYS SEND FOR NON-GET
 // ------------------------------------------------
+let csrfTokenMemory: string | null = null;
+
+export const getStoredCsrfToken = () => csrfTokenMemory;
+
 api.interceptors.request.use(
   (config) => {
-    const csrfToken = document.cookie
-      .split('; ')
-      .find((row) => row.startsWith('csrf_token='))
-      ?.split('=')[1];
-
     // FIX: method might be undefined → default to GET
     const method = (config.method || 'get').toUpperCase();
 
-    if (csrfToken && method !== 'GET') {
-      config.headers['X-CSRF-Token'] = csrfToken;
+    if (csrfTokenMemory && method !== 'GET') {
+      config.headers['X-CSRF-Token'] = csrfTokenMemory;
     }
 
     return config;
@@ -47,7 +46,13 @@ api.interceptors.response.use(
   }
 );
 
-export const getCsrfToken = () => api.get('/auth/csrf');
+export const getCsrfToken = async () => {
+  const response = await api.get('/auth/csrf');
+  if (response.data?.csrf) {
+    csrfTokenMemory = response.data.csrf;
+  }
+  return response;
+};
 
 // ------------------------------------------------
 // AUTH API

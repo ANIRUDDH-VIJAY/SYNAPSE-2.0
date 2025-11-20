@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-dotenv.config(); 
+dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -132,22 +132,6 @@ const connectDB = async () => {
   }
 };
 connectDB();
-
-// Issue CSRF token cookie
-app.get('/auth/csrf', (req, res) => {
-  const token = Math.random().toString(36).substring(2);
-  res.cookie('csrf_token', token, {
-    httpOnly: false, // allow frontend JS to read it
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-  });
-  res.json({ csrf: token });
-});
-
-// Apply CSRF protection to all state-changing routes
-app.use('/auth', authRoutes);
-app.use('/chat', csrfProtect, chatRoutes);
-app.use('/admin', csrfProtect, adminRoutes);
 app.use('/feedback', csrfProtect, feedbackRoutes);
 
 // Health check
@@ -195,7 +179,7 @@ app.get('/db-test', async (req, res) => {
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   console.error('Error stack:', err.stack);
-  
+
   // JWT errors
   if (err.name === 'JsonWebTokenError') {
     return res.status(401).json({ error: 'Invalid token' });
@@ -203,19 +187,19 @@ app.use((err, req, res, next) => {
   if (err.name === 'TokenExpiredError') {
     return res.status(401).json({ error: 'Token expired' });
   }
-  
+
   // Mongoose validation errors
   if (err.name === 'ValidationError') {
     const messages = Object.values(err.errors || {}).map(e => e.message).join(', ') || err.message;
     return res.status(400).json({ error: messages });
   }
-  
+
   // Mongoose duplicate key error
   if (err.code === 11000) {
     const field = Object.keys(err.keyPattern || {})[0] || 'field';
     return res.status(400).json({ error: `${field} already exists` });
   }
-  
+
   // Default error
   res.status(err.status || 500).json({
     error: err.message || 'Internal server error'
